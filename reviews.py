@@ -14,14 +14,14 @@ from wordcloud import WordCloud
 
 # Set page configuration
 st.set_page_config(
-    page_title="Predecessor Review Analysis",
-    page_title_icon="🎮",
+    page_title="Steam Review Analysis",
+    page_icon="🎮",
     layout="wide"
 )
 
 # Main title
-st.title("Predecessor Game Review Analysis")
-st.markdown("This tool analyzes player feedback from Predecessor reviews to extract actionable insights for game improvement.")
+st.title("Steam Game Review Analysis")
+st.markdown("This tool analyzes player feedback from Steam reviews to extract actionable insights for game improvement.")
 
 # Download NLTK resources silently if needed
 try:
@@ -192,7 +192,7 @@ def find_improvement_requests(reviews):
 # Main application
 def main():
     st.sidebar.header("Upload Data")
-    uploaded_file = st.sidebar.file_uploader("Upload Predecessor Reviews CSV", type="csv")
+    uploaded_file = st.sidebar.file_uploader("Upload Reviews CSV", type="csv")
     
     if uploaded_file:
         # Load data
@@ -600,12 +600,12 @@ def main():
     
     else:
         # Show instructions if no file uploaded
-        st.info("Please upload the Predecessor reviews CSV file to start the analysis.")
+        st.info("Please upload the reviews CSV file to start the analysis.")
         
         st.markdown("""
         ### How to Use This Tool
         
-        1. Upload the Predecessor reviews CSV file using the sidebar
+        1. Upload the reviews CSV file using the sidebar
         2. The tool will automatically:
            - Segment players by engagement level
            - Analyze sentiment in reviews
