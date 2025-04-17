@@ -7,8 +7,12 @@ import json
 import time
 import os
 import re
+import logging
 import numpy as np
 from dotenv import load_dotenv
+from numpy.ma.extras import unique
+
+log = logging.getLogger(__name__)
 
 # Load environment variables for API keys
 load_dotenv()
@@ -126,9 +130,19 @@ JSON Response:
                     json_str = text_content.strip()
 
                 # Parse the JSON response
-                result = json.loads(json_str)
+                try:
+                    result = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    log.error(f"JSON error: {e} from {json_str}")
+                    return {
+                        "sentiment_token": "error",
+                        "sentiment_description": f"JSON error: {e}",
+                        "desire_tokens": [],
+                        "desire_description": "Could not extract desires due to JSON error",
+                        "context_token": "error",
+                        "context_description": "Could not determine context due to JSON error"
+                    }
                 return result
-
         else:
             st.error(f"API Error: {response.status_code} - {response.text}")
             return {
@@ -155,6 +169,15 @@ JSON Response:
 def main():
     # Sidebar for API key
     st.sidebar.header("Claude API Configuration")
+
+    # Sentiment Tokens
+    st.sidebar.header("Sentiment Tokens")
+    if 'claude_results' in st.session_state and st.session_state.claude_results is not None:
+        unique_sentiments = st.session_state.claude_results['sentiment_token'].unique()
+        st.sidebar.write(f"Unique Sentiment Tokens: {', '.join(unique_sentiments)}")
+    else:
+        st.sidebar.write("Sentiment Tokens will be displayed after analysis.")
+        unique_sentiments = []
 
     # API key input
     api_key = st.sidebar.text_input(
@@ -355,7 +378,7 @@ def main():
     st.header("Analysis Results")
 
     # Sentiment distribution
-    sentiment_counts = results_df['sentiment'].value_counts()
+    sentiment_counts = results_df['sentiment_token'].value_counts()
 
     col1, col2 = st.columns(2)
 
@@ -367,22 +390,20 @@ def main():
             values=sentiment_counts.values,
             title="Sentiment Distribution (Claude Analysis)",
             color=sentiment_counts.index,
-            color_discrete_map={'positive': 'green', 'neutral': 'gray', 'negative': 'red',
-                                'unknown': '#CCCCCC'},
             hole=0.4
         )
         st.plotly_chart(fig)
 
     with col2:
-        st.subheader("Recommendations Found")
+        st.subheader("Desires Found")
 
         # Count reviews with recommendations
-        has_recommendations = results_df['recommendations'].apply(lambda x: isinstance(x, list) and len(x) > 0)
+        has_recommendations = results_df['desire_tokens'].apply(lambda x: isinstance(x, list) and len(x) > 0)
         rec_count = has_recommendations.sum()
         no_rec_count = len(results_df) - rec_count
 
         rec_data = pd.DataFrame({
-            'Category': ['With Recommendations', 'Without Recommendations'],
+            'Category': ['With Desires', 'Without Desires'],
             'Count': [rec_count, no_rec_count]
         })
 
@@ -390,9 +411,9 @@ def main():
             rec_data,
             names='Category',
             values='Count',
-            title="Reviews With Recommendations",
+            title="Reviews With Desires",
             color='Category',
-            color_discrete_map={'With Recommendations': 'blue', 'Without Recommendations': 'lightgray'},
+            color_discrete_map={'With Desires': 'blue', 'Without Desires': 'lightgray'},
             hole=0.4
         )
         st.plotly_chart(fig)
@@ -400,30 +421,29 @@ def main():
     # Sentiment by recency
     st.subheader("Sentiment by Play Recency")
 
-    sentiment_recency = pd.crosstab(results_df['recency'], results_df['sentiment'])
+    sentiment_recency = pd.crosstab(results_df['recency'], results_df['sentiment_token'])
 
     fig = px.bar(
         sentiment_recency.reset_index().melt(id_vars='recency'),
         x='recency',
         y='value',
-        color='sentiment',
+        color='sentiment_token',
         title="Sentiment Distribution by Play Recency",
         labels={'value': 'Count', 'recency': 'Play Recency'},
-        color_discrete_map={'positive': 'green', 'neutral': 'gray', 'negative': 'red', 'unknown': '#CCCCCC'},
         barmode='group'
     )
     st.plotly_chart(fig)
 
     # Show all recommendations
-    st.header("Extracted Recommendations")
+    st.header("Extracted Desires")
 
     all_recommendations = []
     for idx, row in results_df.iterrows():
-        if isinstance(row['recommendations'], list):
-            for rec in row['recommendations']:
+        if isinstance(row['desire_tokens'], list):
+            for rec in row['desire_tokens']:
                 all_recommendations.append({
-                    'recommendation': rec,
-                    'sentiment': row['sentiment'],
+                    'desire_tokens': rec,
+                    'sentiment_token': row['sentiment_token'],
                     'recency': row['recency'],
                     'review_index': idx
                 })
@@ -434,18 +454,18 @@ def main():
         st.write(f"Found {len(rec_df)} specific recommendations across {rec_count} reviews")
 
         # Group similar recommendations (simple grouping by exact matches)
-        rec_counts = rec_df['recommendation'].value_counts().reset_index()
-        rec_counts.columns = ['Recommendation', 'Count']
+        rec_counts = rec_df['desire_tokens'].value_counts().reset_index()
+        rec_counts.columns = ['Desires', 'Count']
 
         # Show top recommendations
-        st.subheader("Top Recommendations")
+        st.subheader("Top Desires")
 
         # We'll only show the most frequent ones in a table
         top_recs = rec_counts.head(15)
         st.table(top_recs)
 
         # Show all recommendations by category
-        st.subheader("Browse Recommendations")
+        st.subheader("Browse Desires")
 
         # Let user filter by sentiment or recency
         col1, col2 = st.columns(2)
@@ -453,7 +473,7 @@ def main():
         with col1:
             sentiment_filter = st.selectbox(
                 "Filter by sentiment:",
-                options=["All"] + list(rec_df['sentiment'].unique())
+                options=["All"] + list(rec_df['sentiment_token'].unique())
             )
 
         with col2:
@@ -465,7 +485,7 @@ def main():
         # Apply filters
         filtered_recs = rec_df.copy()
         if sentiment_filter != "All":
-            filtered_recs = filtered_recs[filtered_recs['sentiment'] == sentiment_filter]
+            filtered_recs = filtered_recs[filtered_recs['sentiment_token'] == sentiment_filter]
 
         if recency_filter_display != "All":
             filtered_recs = filtered_recs[filtered_recs['recency'] == recency_filter_display]
@@ -474,8 +494,8 @@ def main():
 
         # Display recommendations with context
         for i, (idx, row) in enumerate(filtered_recs.head(20).iterrows()):
-            with st.expander(f"Recommendation {i + 1} ({row['sentiment']} review, {row['recency']})"):
-                st.write(f"**Recommendation:** {row['recommendation']}")
+            with st.expander(f"Desire {i + 1} ({row['sentiment_token']} review, {row['recency']})"):
+                st.write(f"**Desire:** {row['desire_tokens']}")
 
                 # Get the original review
                 original_review_idx = row['review_index']
@@ -483,48 +503,48 @@ def main():
 
                 # Display preview of the review
                 preview = original_review[:300] + "..." if len(original_review) > 300 else original_review
-                st.text_area("From review:", value=preview, height=100)
+                st.text_area("From review:", key=i, value=preview, height=100)
         else:
             st.write("No specific recommendations found in the analyzed reviews.")
 
         # Browse reviews by sentiment
         st.header("Browse Reviews by Sentiment")
 
-        sentiment_tabs = st.tabs(["Positive", "Neutral", "Negative", "Unknown"])
+        if unique_sentiments:
+            sentiment_tabs = st.tabs(unique_sentiments)
+            for i, sentiment in enumerate(unique_sentiments):
+                with sentiment_tabs[i]:
+                    filtered_reviews = results_df[results_df['sentiment_token'] == sentiment]
 
-        for i, sentiment in enumerate(["positive", "neutral", "negative", "unknown"]):
-            with sentiment_tabs[i]:
-                filtered_reviews = results_df[results_df['sentiment'] == sentiment]
+                    if len(filtered_reviews) > 0:
+                        st.write(f"Found {len(filtered_reviews)} {sentiment} reviews")
 
-                if len(filtered_reviews) > 0:
-                    st.write(f"Found {len(filtered_reviews)} {sentiment} reviews")
+                        for j, (idx, row) in enumerate(filtered_reviews.head(5).iterrows()):
+                            with st.expander(f"{sentiment.title()} Review {j + 1} ({row['recency']})"):
+                                st.text_area("Review text:", value=row['review'], height=150)
 
-                    for j, (idx, row) in enumerate(filtered_reviews.head(5).iterrows()):
-                        with st.expander(f"{sentiment.title()} Review {j + 1} ({row['recency']})"):
-                            st.text_area("Review text:", value=row['review'], height=150)
+                                if isinstance(row['desire_tokens'], list) and len(row['desire_tokens']) > 0:
+                                    st.write("**Desires:**")
+                                    for rec in row['desire_tokens']:
+                                        st.write(f"- {rec}")
+                                else:
+                                    st.write("No specific desires found.")
+                    else:
+                        st.write(f"No {sentiment} reviews found.")
 
-                            if isinstance(row['recommendations'], list) and len(row['recommendations']) > 0:
-                                st.write("**Recommendations:**")
-                                for rec in row['recommendations']:
-                                    st.write(f"- {rec}")
-                            else:
-                                st.write("No specific recommendations found.")
-                else:
-                    st.write(f"No {sentiment} reviews found.")
-
-        # Download results
+            # Download results
         st.header("Download Results")
 
         # Prepare download data
         download_df = results_df.copy()
 
         # Convert recommendation lists to strings for CSV compatibility
-        download_df['recommendations_text'] = download_df['recommendations'].apply(
+        download_df['recommendations_text'] = download_df['desire_tokens'].apply(
             lambda x: "; ".join(x) if isinstance(x, list) and len(x) > 0 else ""
         )
 
         # Drop the original list column
-        download_df = download_df.drop(columns=['recommendations'])
+        download_df = download_df.drop(columns=['desire_tokens'])
 
         # Convert to CSV
         csv = download_df.to_csv(index=False)
