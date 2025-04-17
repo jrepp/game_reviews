@@ -1,3 +1,4 @@
+dotenv
 streamlit
 pandas
 numpy
@@ -6,3 +7,4 @@ seaborn
 nltk
 plotly
 wordcloud
+watchdog
